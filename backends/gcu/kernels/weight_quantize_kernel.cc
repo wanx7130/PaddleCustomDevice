@@ -17,6 +17,14 @@
 #include "paddle/phi/backends/cpu/cpu_context.h"
 #include "paddle/phi/kernels/transpose_kernel.h"
 
+#ifdef _OPENMP
+#include <omp.h>
+#else
+// 定义空宏防止编译错误
+#define omp_get_thread_num() 0
+#define omp_get_num_threads() 1
+#endif
+
 namespace {
 
 template <typename T>
@@ -27,6 +35,7 @@ inline T xabs(const T x) {
 template <typename T, typename ScaleT>
 void per_channel_scale(
     ScaleT* scale, const T* input, size_t m, size_t n, float bound) {
+  #pragma omp parallel for
   for (size_t i = 0; i < n; ++i) {
     float max = static_cast<float>(input[i]);
     for (size_t j = 0; j < m; ++j) {
@@ -45,6 +54,7 @@ void group_wise_scale(ScaleT* scale,
                       size_t n,
                       float bound,
                       size_t group_size) {
+  #pragma omp parallel for collapse(2) schedule(dynamic, 1)
   for (size_t i = 0; i < n; ++i) {
     for (size_t j = 0; j < m; j += group_size) {
       float max = static_cast<float>(0.f);
@@ -66,6 +76,7 @@ void per_channel_quant(int8_t* output,
                        size_t num_rows,
                        size_t num_cols) {
   size_t bytes_per_out_col = num_cols * quant_bit / 8;
+  #pragma omp parallel for
   for (size_t ii = 0; ii < num_rows; ++ii) {
     int8_t* current_quantized_weight_row = output + ii * bytes_per_out_col;
     const T* current_weight_row = input + ii * num_cols;
@@ -114,6 +125,7 @@ void group_wise_quant(int8_t* output,
                       size_t num_cols,
                       const int group_size) {
   size_t bytes_per_out_col = num_cols * quant_bit / 8;
+  #pragma omp parallel for
   for (size_t ii = 0; ii < num_rows; ++ii) {
     int8_t* current_quantized_weight_row = output + ii * bytes_per_out_col;
     const T* current_weight_row = input + ii * num_cols;
